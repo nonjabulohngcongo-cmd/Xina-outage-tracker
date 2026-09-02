@@ -3686,9 +3686,12 @@ function clearSPConfig() {
 }
 
 async function testSPConnection() {
-  if (!GH.token) { alert('Enter your GitHub Personal Access Token first.'); return; }
+  // Read straight from the field so Test Token works even before Save & Connect.
+  const tokEl = document.getElementById('gh-token');
+  const tok = (tokEl && tokEl.value ? tokEl.value.trim() : '') || GH.token;
+  if (!tok) { alert('Enter your GitHub Personal Access Token first.'); return; }
   try {
-    const r=await fetch('https://api.github.com/user',{headers:_ghHeaders()});
+    const r=await fetch('https://api.github.com/user',{headers:{'Authorization':'token '+tok,'Accept':'application/vnd.github+json'}});
     const j=await r.json();
     if(r.ok) alert('✓ Connected as: '+(j.login||JSON.stringify(j)));
     else alert('✗ GitHub error: '+(j.message||r.status));
