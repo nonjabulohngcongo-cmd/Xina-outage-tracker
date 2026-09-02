@@ -5280,7 +5280,6 @@ function getTimelineRange(rowsOverride) {
     });
   });
   if (!min) { const now = new Date(); min = now; }
-  if (! }
   if (!max) { const later = new Date(min); later.setDate(later.getDate() + 30); max = later; }
   // Pad by 1 day each side
   const minP = new Date(min); minP.setDate(minP.getDate() - 1);
