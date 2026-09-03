@@ -2206,6 +2206,35 @@ function calcPctComplete(mt) {
   return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 }
 
+// Dynamic date range for the Gantt chart: spans the earliest start / latest
+// finish among the given rows, with a day of padding on each side.
+function _ganttDateRange(rows) {
+  let minMs = null, maxMs = null;
+  rows.forEach(r => {
+    const s = r.start ? new Date(r.start).getTime() : NaN;
+    const f = r.finish ? new Date(r.finish).getTime() : NaN;
+    if (!isNaN(s) && (minMs === null || s < minMs)) minMs = s;
+    if (!isNaN(f) && (maxMs === null || f > maxMs)) maxMs = f;
+  });
+  if (minMs === null && maxMs === null) {
+    minMs = Date.now() - 7*86400000; maxMs = Date.now() + 14*86400000;
+  } else {
+    if (minMs === null) minMs = maxMs;
+    if (maxMs === null) maxMs = minMs;
+  }
+  minMs -= 86400000; maxMs += 86400000; // 1-day padding
+  return { minMs, maxMs };
+}
+function _ganttRangeLabel(minMs, maxMs) {
+  const MON = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+  const a = new Date(minMs), b = new Date(maxMs);
+  const ay = a.getFullYear(), by = b.getFullYear();
+  const am = a.getMonth(), bm = b.getMonth();
+  if (ay === by && am === bm) return MON[am] + " " + ay;
+  if (ay === by) return MON[am] + " – " + MON[bm] + " " + ay;
+  return MON[am] + " " + ay + " – " + MON[bm] + " " + by;
+}
+
 function buildGanttRows() {
   const rows = [];
   for (const mt of mainTasks()) {
@@ -2226,9 +2255,8 @@ function renderGantt() {
   const rows = buildGanttRows();
   if (!rows.length) { labelEl.innerHTML="<p style='padding:20px;color:#aaa'>No tasks.</p>"; return; }
 
-  // Fixed date range: 1 June – 30 June 2026
-  const minMs = new Date("2026-05-31T00:00:00").getTime();
-  const maxMs = new Date("2026-06-30T23:59:59").getTime();
+  const _range = _ganttDateRange(rows);
+  const minMs = _range.minMs, maxMs = _range.maxMs;
   const totalMs = maxMs - minMs;
 
   const cw = Math.max(900, (chartEl.parentElement.offsetWidth || 900) - GANTT_LABEL_W - 4);
@@ -2247,7 +2275,7 @@ function renderGantt() {
   const todayMs = Date.now();
   const todayX = toX(todayMs);
 
-  // ── Date-header SVG (height 58: 12px "June" banner + 46px tick area) ──
+  // ── Date-header SVG (height 58: 12px month/range banner + 46px tick area) ──
   const HDR_H = 70;
   let hdrLines = "", hdrDailyLines = "", hdrTodayLine = "", hdrLabels = "", hdrTodayLabel = "";
 
@@ -2268,25 +2296,24 @@ function renderGantt() {
     hdrTodayLabel = `<rect x="${todayX-16}" y="13" width="32" height="13" rx="2" fill="#e53935"/>
       <text x="${todayX}" y="23" text-anchor="middle" font-size="8.5" fill="white" font-weight="700" font-family="Arial,sans-serif">TODAY</text>`;
   }
-  // Tick labels: just day number, skip "31" (May 31)
+  // Tick labels: just day number
   ticks.forEach(ms => {
     const d = new Date(ms);
-    if (d.getMonth() === 4) return; // hide May 31
     const x = toX(ms);
     const lbl = String(d.getDate());
     hdrLabels += `<rect x="${x-16}" y="${HDR_H-18}" width="32" height="16" fill="#edf2ff" opacity="0.88"/>`;
     hdrLabels += `<text x="${x}" y="${HDR_H-4}" text-anchor="middle" font-size="11" fill="#222" font-family="Arial,sans-serif" font-weight="700">${lbl}</text>`;
   });
 
-  // "June" banner at top
-  const juneLabel = `<rect x="0" y="0" width="${cw}" height="26" fill="#c5d0f0"/>
-    <text x="${cw/2}" y="19" text-anchor="middle" font-size="15" fill="#1e3a5f" font-weight="900" font-family="Arial,sans-serif" letter-spacing="4">JUNE</text>`;
+  // Month/range banner at top (dynamic — fits the current task dates)
+  const rangeLabel = `<rect x="0" y="0" width="${cw}" height="26" fill="#c5d0f0"/>
+    <text x="${cw/2}" y="19" text-anchor="middle" font-size="15" fill="#1e3a5f" font-weight="900" font-family="Arial,sans-serif" letter-spacing="4">${_ganttRangeLabel(minMs,maxMs)}</text>`;
 
   dateHdrEl.style.height = HDR_H + 'px'; document.documentElement.style.setProperty('--ghdr', HDR_H+'px');
   document.getElementById('gantt-frozen-hdr').style.height = (HDR_H) + 'px';
   dateHdrEl.innerHTML = `<svg width="${cw}" height="${HDR_H}" xmlns="http://www.w3.org/2000/svg" style="display:block">
     <rect x="0" y="0" width="${cw}" height="${HDR_H}" fill="#edf2ff"/>
-    ${juneLabel}
+    ${rangeLabel}
     <line x1="0" y1="26" x2="${cw}" y2="26" stroke="#b8c8e0" stroke-width="1"/>
     ${hdrDailyLines}${hdrLines}${hdrTodayLine}${hdrLabels}${hdrTodayLabel}
   </svg>`;
@@ -3208,8 +3235,8 @@ function printAll() {
 
   // ══ PAGE 3+: Progress Chart (Gantt) ══
   const rows = buildGanttRows();
-  const minMs = new Date("2026-05-31T00:00:00").getTime();
-  const maxMs = new Date("2026-06-30T23:59:59").getTime();
+  const _range = _ganttDateRange(rows);
+  const minMs = _range.minMs, maxMs = _range.maxMs;
   const totalMs = maxMs - minMs;
   const cw = 1200;
   const toX = ms => Math.round(((ms - minMs) / totalMs) * cw);
@@ -3235,15 +3262,14 @@ function printAll() {
   }
   ticks.forEach(ms => {
     const d = new Date(ms);
-    if (d.getMonth() === 4) return; // hide 31 May
     const x = toX(ms);
     hLabels += `<rect x="${x-14}" y="${PHDR-16}" width="28" height="14" fill="#edf2ff" opacity="0.9"/>`;
     hLabels += `<text x="${x}" y="${PHDR-4}" text-anchor="middle" font-size="11" fill="#222" font-family="Arial,sans-serif" font-weight="700">${d.getDate()}</text>`;
   });
-  const juneBanner = `<rect x="0" y="0" width="${cw}" height="14" fill="#c5d0f0"/>
-    <text x="${cw/2}" y="11" text-anchor="middle" font-size="10" fill="#1e3a5f" font-weight="800" font-family="Arial,sans-serif" letter-spacing="2">JUNE</text>
+  const rangeBanner = `<rect x="0" y="0" width="${cw}" height="14" fill="#c5d0f0"/>
+    <text x="${cw/2}" y="11" text-anchor="middle" font-size="10" fill="#1e3a5f" font-weight="800" font-family="Arial,sans-serif" letter-spacing="2">${_ganttRangeLabel(minMs,maxMs)}</text>
     <line x1="0" y1="14" x2="${cw}" y2="14" stroke="#b8c8e0" stroke-width="0.8"/>`;
-  const hdrSvg = `<rect x="0" y="0" width="${cw}" height="${PHDR}" fill="#edf2ff"/>${juneBanner}${hLines}${hToday}${hLabels}${hTodayLbl}`;
+  const hdrSvg = `<rect x="0" y="0" width="${cw}" height="${PHDR}" fill="#edf2ff"/>${rangeBanner}${hLines}${hToday}${hLabels}${hTodayLbl}`;
 
   // Build row SVGs
   const SCOLOR = {"Complete":"#2d6a4f","In progress":"#b07b1e","Not started":"#7a8fa6","On hold":"#3a6186","Cancelled":"#8b3a3a","":"#9ab0c4"};
@@ -3327,7 +3353,7 @@ function printAll() {
     +'</div></div>';
 
     const ganttHtml = `<div class="pdf-section" style="page-break-before:always;margin-top:20px">
-    <div class="pdf-section-title" style="margin-bottom:8px">PROGRESS CHART — JUNE 2026</div>
+    <div class="pdf-section-title" style="margin-bottom:8px">PROGRESS CHART — ${_ganttRangeLabel(minMs,maxMs)}</div>
     <table class="pdf-gantt-table">
       <thead>
         <tr>
